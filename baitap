@@ -1,0 +1,1201 @@
+#include <SDL.h>
+#include <SDL_image.h>
+#include <SDL_mixer.h>
+#include <SDL_ttf.h>
+#include <iostream>
+#include <string>
+#include <sstream>
+#include <vector>
+#include <fstream>
+
+using namespace std;
+
+const int SCREEN_WIDTH = 928;
+const int SCREEN_HEIGHT = 793;
+int hEalth=3 ;
+
+class LTexture
+{
+	public:
+		LTexture();
+		~LTexture();
+
+		bool loadFromFile( std::string path );
+
+		bool load_FromrenderText(std::string textureText, SDL_Color textColor);
+
+		void free();
+
+		void render( int x, int y, SDL_Rect* clip=NULL, double angle=0.0, SDL_Point* center=NULL, SDL_RendererFlip flip=SDL_FLIP_NONE);
+
+		int getWidth();
+		int getHeight();
+
+	private:
+		SDL_Texture* mTexture;
+
+		int mWidth;
+		int mHeight;
+};
+
+SDL_Window* gWindow = NULL;
+
+SDL_Renderer* gRenderer = NULL;
+
+LTexture gBackgroundTexture;
+LTexture gDotTexture;
+LTexture chuongngai1;
+LTexture chuongngai2;
+LTexture gHealth;
+LTexture gMenu;
+LTexture howtoplay;
+LTexture gOver;
+
+//thoi gian
+LTexture gTime;
+LTexture gHighTimeSurvice;
+TTF_Font* gFont=NULL;
+//am nhac
+Mix_Music *menu;
+Mix_Music *play;
+Mix_Music *over;
+Mix_Chunk *Collider;
+Mix_Chunk *start;
+Mix_Chunk *vacham;
+
+bool init();
+
+bool loadMedia();
+
+bool checkCollision( SDL_Rect a, SDL_Rect b);
+
+void close();
+
+LTexture::LTexture()
+{
+	mTexture = NULL;
+	mWidth = 0;
+	mHeight = 0;
+}
+
+LTexture::~LTexture()
+{
+	free();
+}
+
+bool LTexture::loadFromFile( std::string path )
+{
+	free();
+	SDL_Texture* newTexture = NULL;
+
+	SDL_Surface* loadedSurface = IMG_Load( path.c_str() );
+	if( loadedSurface == NULL )
+	{
+		cout<<"Unable to load image %s! SDL_image Error: %s"<<endl<<path.c_str()<<IMG_GetError() ;
+	}
+	else
+	{
+		SDL_SetColorKey( loadedSurface, SDL_TRUE, SDL_MapRGB( loadedSurface->format, 0, 0xFF, 0xFF ) );
+
+        newTexture = SDL_CreateTextureFromSurface( gRenderer, loadedSurface );
+		if( newTexture == NULL )
+		{
+			cout<<"Unable to create texture from %s! SDL Error: %s"<<endl<<path.c_str()<<SDL_GetError();
+		}
+		else
+		{
+			//Get image dimensions
+			mWidth = loadedSurface->w;
+			mHeight = loadedSurface->h;
+		}
+
+		//Get rid of old loaded surface
+		SDL_FreeSurface( loadedSurface );
+	}
+
+	//Return success
+	mTexture = newTexture;
+	return mTexture != NULL;
+}
+
+bool LTexture::load_FromrenderText(std::string textureText, SDL_Color textColor)
+{
+   free();
+
+   SDL_Surface* textSurface=TTF_RenderText_Solid(gFont, textureText.c_str(), textColor);
+   if(textSurface!=NULL)
+   {
+      mTexture=SDL_CreateTextureFromSurface(gRenderer, textSurface);
+      if(mTexture==NULL)
+      {
+         cout<<"khong the tao text"<<endl;
+      }
+      else
+      {
+         mWidth=textSurface->w;
+         mHeight=textSurface->h;
+      }
+
+      SDL_FreeSurface(textSurface);
+   }
+   else
+   {
+      cout<<"khong the tao"<<endl;
+   }
+
+   return mTexture!=NULL;
+}
+
+
+void LTexture::free()
+{
+	if( mTexture != NULL )
+	{
+		SDL_DestroyTexture( mTexture );
+		mTexture = NULL;
+		mWidth = 0;
+		mHeight = 0;
+	}
+}
+
+void LTexture::render( int x, int y, SDL_Rect* clip, double angle, SDL_Point* center, SDL_RendererFlip flip)
+{
+	SDL_Rect renderQuad = { x, y, mWidth, mHeight };
+	if(clip!=NULL)
+   {
+      renderQuad.w=clip->w;
+      renderQuad.h=clip->h;
+   }
+
+   SDL_RenderCopyEx(gRenderer, mTexture, clip, &renderQuad, angle, center, flip);
+
+}
+
+int LTexture::getWidth()
+{
+	return mWidth;
+}
+
+int LTexture::getHeight()
+{
+	return mHeight;
+}
+
+class Character
+{
+public:
+   static const int CHARACTER_WIDTH=38;
+   static const int CHARACTER_HEIGHT=45;
+
+   const double CHARACTER_VEL=0.75;
+
+   Character();
+
+   void handleEvent( SDL_Event& e);
+
+   void move();
+
+   void render();
+
+   SDL_Rect getmCollider()
+   {
+      return mCollider;
+   }
+
+   void resetPosition()
+   {
+      mPosX=500;
+      mPosY=680;
+      mCollider.x=mPosX;
+      mCollider.y=mPosY;
+      Vjump=-1.5;
+      jump=false;
+      up_presses=false;
+   }
+
+   double setVelCharac()
+   {
+      mVelX=0;
+      mVelY=0;
+      Vjump=0;
+   }
+
+private:
+   SDL_Rect mCollider;
+
+   double mPosX,mPosY;
+
+   double mVelX,mVelY,Vjump;
+
+   bool jump,up_presses;
+
+
+};
+
+Character::Character()
+{
+   mPosX=500;
+   mPosY=680;
+
+   jump=false;
+   up_presses=false;
+
+   mCollider.w=CHARACTER_WIDTH;
+   mCollider.h=CHARACTER_HEIGHT;
+
+   mVelX=0;
+   mVelY=0;
+   Vjump=-1.5;
+}
+SDL_RendererFlip flipType=SDL_FLIP_NONE;
+void Character::handleEvent(SDL_Event& e)
+{
+   if(e.type==SDL_KEYDOWN && e.key.repeat==0)
+   {
+      switch(e.key.keysym.sym)
+      {
+         case SDLK_RIGHT:
+         mVelX+=CHARACTER_VEL;
+         flipType=SDL_FLIP_NONE;
+         break;
+         case SDLK_LEFT:
+         mVelX-=CHARACTER_VEL;
+         flipType=SDL_FLIP_HORIZONTAL;
+         break;
+         case SDLK_SPACE:
+            if(!jump)
+            {
+               jump=true;
+            }
+            up_presses=true;
+         break;
+      }
+   }
+   else if(e.type==SDL_KEYUP && e.key.repeat==0)
+   {
+      switch( e.key.keysym.sym)
+      {
+         case SDLK_LEFT: mVelX+=CHARACTER_VEL;
+         flipType=SDL_FLIP_HORIZONTAL;
+         break;
+         case SDLK_RIGHT: mVelX-=CHARACTER_VEL;
+         flipType=SDL_FLIP_NONE;
+         break;
+         case SDLK_SPACE:
+         up_presses=false;
+         break;
+      }
+   }
+
+}
+
+void Character::move()
+{
+   if(up_presses && !jump)
+   {
+      mVelY=Vjump;
+      jump=true;
+   }
+   if(jump)
+   {
+      mVelY+=0.01;
+      //SDL_Delay(100);
+   }
+   mPosY+=mVelY;
+   if(mPosY>=680)
+   {
+      mPosY=680;
+      mVelY=0;
+      jump=false;
+   }
+
+
+   mPosX+=mVelX;
+   mCollider.x=mPosX;
+   if((mPosX<0) || ( mPosX+ CHARACTER_WIDTH>SCREEN_WIDTH))
+   {
+      mPosX-=mVelX;
+      mCollider.x=mPosX;
+   }
+   mCollider.y=mPosY;
+}
+
+void Character::render()
+{
+   gDotTexture.render(mPosX,mPosY, NULL, NULL, NULL, flipType);
+}
+
+//const int NUM_THREAT=3;
+int random(int minN,int maxN)
+{
+   return minN+rand()%(maxN+1-minN);
+}
+
+class ThreatsObject
+{
+public:
+   static const int Threats_WITDH=100;
+   static const int Threats_HEIGHT=100;
+
+   //static const int Threats_VEL=1;
+   ThreatsObject();
+
+   void move(Character& character);
+
+   void render();
+
+   SDL_Rect getmCollider()
+   {
+      return mCollider;
+   }
+
+   void resetPosition()
+   {
+      mPosX=random(0,8)*100;
+      mPosY=random(0,3)*-300;
+      mCollider.x=mPosX;
+      mCollider.y=mPosY;
+      mVelY=0.5;
+   }
+
+   double setVelY()
+   {
+      mVelY=0;
+   }
+
+   double VelY()
+   {
+      mVelY=1;
+   }
+
+private:
+   SDL_Rect mCollider;
+
+   double mPosX,mPosY;
+
+   double mVelX,mVelY;
+
+
+
+};
+
+ThreatsObject::ThreatsObject()
+{
+   mPosX=random(0,8)*100;
+   mPosY=random(1,3)*-300;
+
+   mCollider.w=Threats_WITDH;
+   mCollider.h=Threats_HEIGHT;
+
+   mVelY=0.5;
+   mVelX=0;
+}
+
+void ThreatsObject::move( Character& character)
+{
+   mPosY+=mVelY;
+   mCollider.y=mPosY;
+   mCollider.x=mPosX;
+
+
+   if(mPosY+Threats_HEIGHT>SCREEN_HEIGHT || checkCollision(getmCollider(),character.getmCollider()) )
+   {
+      Mix_PlayChannel(-1,Collider,0);
+      mPosY=-15-Threats_HEIGHT;
+      //mCollider.y=mPosY;
+      mPosX=random(0,8)*100;
+      //mCollider.x=mPosX;
+   }
+}
+
+void ThreatsObject::render()
+{
+   chuongngai1.render(mPosX,mPosY);
+}
+
+class ThreatsObject2
+{
+public:
+   static const int Threats2_WITDH=100;
+   static const int Threats2_HEIGHT=73;
+
+   //static const int Threats_VEL=1;
+   ThreatsObject2();
+
+   void move(Character& character);
+
+   void render();
+
+   SDL_Rect getmCollider()
+   {
+      return mCollider;
+   }
+
+   void resetPosition()
+   {
+      mPosX=0;
+      mPosY=665;
+      mCollider.x=mPosX;
+      mCollider.y=mPosY;
+      mVelX=0.15;
+   }
+
+   double setVelX()
+   {
+      mVelX=0;
+   }
+private:
+   SDL_Rect mCollider;
+
+   double mPosX,mPosY;
+
+   double mVelX,mVelY;
+
+};
+
+ThreatsObject2::ThreatsObject2()
+{
+   mPosX=0;
+   mPosY=665;
+
+   mCollider.w=Threats2_WITDH;
+   mCollider.h=Threats2_HEIGHT;
+
+   mVelY=0;
+   mVelX=0.15;
+}
+
+void ThreatsObject2::move(Character& character)
+{
+   mPosX+=mVelX;
+
+   mCollider.x=mPosX;
+   mCollider.y=mPosY;
+
+   if(mPosX+Threats2_WITDH>SCREEN_WIDTH+10 || checkCollision(getmCollider(),character.getmCollider()))
+   {
+      Mix_PlayChannel(-1,Collider,0);
+      mPosX=-500;
+   }
+}
+
+void ThreatsObject2::render()
+{
+   chuongngai2.render(mPosX,mPosY);
+}
+
+class Health
+{
+public:
+   static const int ICON_WITDH=50;
+   static const int ICON_HEIGHT=40;
+   Health();
+   //~Health();
+
+   void render(int X);
+private:
+   int mPosX,mPosY;
+
+};
+
+Health::Health()
+{
+   mPosY=10;
+}
+
+void Health::render(int X)
+{
+   gHealth.render(X,10);
+}
+
+bool init()
+{
+	//Initialization flag
+	bool success = true;
+
+	//Initialize SDL
+	if( SDL_Init( SDL_INIT_VIDEO | SDL_INIT_AUDIO ) < 0 )
+	{
+		cout<<"SDL could not initialize! SDL Error: %s"<<endl<<SDL_GetError()<<endl;
+		success = false;
+	}
+	else
+	{
+		//Set texture filtering to linear
+		if( !SDL_SetHint( SDL_HINT_RENDER_SCALE_QUALITY, "1" ) )
+		{
+			cout<<"Warning: Linear texture filtering not enabled!"<<endl;
+		}
+
+		//Create window
+		gWindow = SDL_CreateWindow( "SDL Tutorial", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN );
+		if( gWindow == NULL )
+		{
+			cout<<"Window could not be created! SDL Error: %s"<<endl<<SDL_GetError()<<endl;
+			success = false;
+		}
+		else
+		{
+			//Create renderer for window
+			gRenderer = SDL_CreateRenderer( gWindow, -1, SDL_RENDERER_ACCELERATED );
+			if( gRenderer == NULL )
+			{
+            cout<<"Renderer could not be created! SDL Error: %s"<<endl<<SDL_GetError()<<endl;
+				success = false;
+			}
+			else
+			{
+				//Initialize renderer color
+				SDL_SetRenderDrawColor( gRenderer, 0xFF, 0xFF, 0xFF, 0xFF );
+
+				//Initialize PNG loading
+				int imgFlags = IMG_INIT_PNG;
+				if( !( IMG_Init( imgFlags ) & imgFlags ) )
+				{
+					cout<<"SDL_image could not initialize! SDL_image Error: %s"<<endl<<IMG_GetError()<<endl;
+					success = false;
+				}
+
+				if(Mix_OpenAudio(44100,MIX_DEFAULT_FORMAT,2,2048)<0)
+            {
+               success=false;
+            }
+
+            if(TTF_Init()==-1)
+            {
+               cout<<"khong the toa text"<<endl;
+               success=false;
+            }
+			}
+		}
+	}
+
+	return success;
+}
+
+bool loadMedia()
+{
+	//Loading success flag
+	bool success = true;
+
+	if(!howtoplay.loadFromFile("howtoplay.png"))
+   {
+      cout<<"false"<<endl;
+      success=false;
+   }
+
+	if(!gOver.loadFromFile("OVER.png"))
+   {
+      cout<<"false"<<endl;
+      success=false;
+   }
+
+	if(!gMenu.loadFromFile("menu2.png"))
+   {
+      cout<<"false"<<endl;
+      success=false;
+   }
+
+	if(!gHealth.loadFromFile("health.png"))
+   {
+      cout<<"false"<<endl;
+      success=false;
+   }
+
+	if(!chuongngai2.loadFromFile("tenlua.png"))
+   {
+      cout<<"failed"<<endl;
+      success=false;
+   }
+
+	if(!chuongngai1.loadFromFile("chuongngai.png"))
+   {
+      cout<<"failed"<<endl;
+      success=false;
+   }
+
+	if(!gDotTexture.loadFromFile("character.png"))
+   {
+      cout<<"failed"<<endl;
+      return false;
+   }
+
+
+	if( !gBackgroundTexture.loadFromFile( /*"background.png""bground.png"*/ "minh (1).png" ) )
+	{
+		cout<<"Failed to load background texture image!"<<endl;
+		success = false;
+	}
+
+	menu=Mix_LoadMUS("menu.mp3");
+	if(menu==NULL)
+   {
+      success=false;
+   }
+
+   play=Mix_LoadMUS("play.mp3");
+	if(play==NULL)
+   {
+      success=false;
+   }
+
+   over=Mix_LoadMUS("over.mp3");
+	if(menu==NULL)
+   {
+      success=false;
+   }
+
+	Collider=Mix_LoadWAV("Collider.WAV");
+	if(Collider==NULL)
+   {
+      success=false;
+   }
+   start=Mix_LoadWAV("start.WAV");
+	if(start==NULL)
+   {
+      success=false;
+   }
+   vacham=Mix_LoadWAV("huh.WAV");
+	if(vacham==NULL)
+   {
+      success=false;
+   }
+
+   gFont=TTF_OpenFont("lazy.ttf", 20);
+   if(gFont==NULL)
+   {
+      success=false;
+   }
+
+   return success;
+}
+
+void close()
+{
+	gDotTexture.free();
+	gBackgroundTexture.free();
+
+	chuongngai1.free();
+	chuongngai2.free();
+
+	gHealth.free();
+	gMenu.free();
+	gOver.free();
+	howtoplay.free();
+
+	Mix_FreeMusic(menu);
+	menu=NULL;
+	Mix_FreeMusic(play);
+	play=NULL;
+	Mix_FreeMusic(over);
+	over=NULL;
+	Mix_FreeChunk(Collider);
+	Collider=NULL;
+	Mix_FreeChunk(start);
+	start=NULL;
+	Mix_FreeChunk(vacham);
+	vacham=NULL;
+
+	gTime.free();
+	gHighTimeSurvice.free();
+	TTF_CloseFont(gFont);
+	gFont=NULL;
+
+	SDL_DestroyRenderer( gRenderer );
+	SDL_DestroyWindow( gWindow );
+	gWindow = NULL;
+	gRenderer = NULL;
+
+	IMG_Quit();
+	SDL_Quit();
+}
+
+bool checkCollision( SDL_Rect a, SDL_Rect b )
+{
+   SDL_bool x=SDL_HasIntersection( &a, &b);
+   return x;
+}
+
+int showMenu()
+{
+   bool menuRun=true;
+   bool howtoPlay=false;
+   bool quit=false;
+   Mix_PlayMusic(menu,-1);
+
+   while(menuRun)
+   {
+      SDL_Event m_event;
+      while(SDL_PollEvent(&m_event))
+      {
+         switch(m_event.type)
+         {
+         case SDL_QUIT:
+            return 2;
+            break;
+         case SDL_MOUSEBUTTONDOWN:
+            if(m_event.button.button==SDL_BUTTON_LEFT)
+            {
+               int xm=m_event.button.x;
+               int ym=m_event.button.y;
+               cout<<xm<<" "<<ym<<endl;
+               if(xm>327 && xm<610 && ym>328 && ym<474)
+               {
+                  Mix_PlayChannel(-1,start,0);
+                  howtoPlay=true;
+                  howtoplay.render(0,0);
+               }
+            }
+            break;
+         case SDL_KEYDOWN:
+            if(m_event.key.keysym.sym==SDLK_UP && m_event.key.repeat==0)
+            {
+               return 1;
+            }
+         }
+      }
+      if(!howtoPlay)
+      {
+         gMenu.render(0,0);
+      }
+      SDL_RenderPresent(gRenderer);
+   }
+   return 0;
+
+}
+
+int gameOver()
+{
+   bool gameOverRunning=true;
+   Mix_PlayMusic(over,-1);
+   while(gameOverRunning)
+   {
+      SDL_Event m_event;
+      while(SDL_PollEvent(&m_event))
+      {
+         switch (m_event.type)
+         {
+         case SDL_QUIT:
+            return 2;
+            break;
+         case SDL_MOUSEBUTTONDOWN:
+            if(m_event.button.button==SDL_BUTTON_LEFT)
+            {
+               int xm=m_event.button.x;
+               int ym=m_event.button.y;
+               cout<<xm<<" "<<ym<<endl;
+               if(xm>256 && xm<388 && ym>440 && ym<501)
+               {
+                  Mix_HaltMusic();
+                  return 1;
+               }
+               if(xm>548 && xm<667 && ym>440 && ym<501)
+               {
+                  Mix_HaltMusic();
+                  return 2;
+               }
+
+            }
+         }
+      }
+      gOver.render(0,0);
+      SDL_RenderPresent(gRenderer);
+   }
+   return 0;
+}
+
+void saveHighTime(int HIGHTIME)
+{
+   ofstream file("hightime.txt");
+   if(file.is_open())
+   {
+      file<<HIGHTIME;
+      file.close();
+   }
+}
+
+int loadHighTime()
+{
+   int hightime=0;
+   ifstream file("hightime.txt");
+   if(file.is_open())
+   {
+      file>>hightime;
+      file.close();
+   }
+   return hightime;
+}
+
+//int main( int argc, char* args[] )
+//{
+//	if( !init() )
+//	{
+//		cout<<"Failed to initialize!"<<endl;
+//	}
+//	else
+//	{
+//		if( !loadMedia() )
+//		{
+//			cout<<"Failed to load media!"<<endl;
+//		}
+//		else
+//		{
+//			bool quit = true;
+//			bool menu=true;
+//
+//			SDL_Event e;
+//
+//			Character charac;
+//			ThreatsObject2 chuongngai2;
+//			vector <Health> health;
+//			for(int i=0;i<hEalth;i++)
+//         {
+//            health.push_back(Health());
+//         }
+//
+//			vector <ThreatsObject> threads;
+//         for(int i=0;i<4;i++)
+//         {
+//            threads.push_back(ThreatsObject());
+//         }
+//
+//         SDL_Color textColor={225,225,0,255};
+//         Uint32 startTime;
+//         int HIGHTIME=loadHighTime();
+//         stringstream timetext;
+//         stringstream hightime;
+//
+//         while(menu)
+//         {
+//            if(showMenu()==1)
+//            {
+//               startTime=SDL_GetTicks();
+//               quit=false;
+//               menu=false;
+//            }else if(showMenu()==2)
+//            {
+//               quit=true;
+//               menu=false;
+//            }
+//         }
+//
+//         Mix_PlayMusic(play,-1);
+//			while( !quit )
+//			{
+//				while( SDL_PollEvent( &e ) != 0 )
+//				{
+//					if( e.type == SDL_QUIT )
+//					{
+//						quit = true;
+//					}
+//
+//					charac.handleEvent( e );
+//				}
+//
+//				timetext.str("");
+//				timetext<<"Time survice : "<<(SDL_GetTicks()-startTime)/1000 <<" s";
+//				if( !gTime.load_FromrenderText( timetext.str().c_str(), textColor ) )
+//				{
+//					printf( "Unable to render time texture!\n" );
+//				}
+//				if((SDL_GetTicks()-startTime)/1000==20)
+//            {
+//               for(auto& x:threads)
+//               {
+//                  x.VelY();
+//               }
+//            }
+//				hightime.str("");
+//				hightime<<"HighTimeSurvice : "<<HIGHTIME<<" s";
+//				if(!gHighTimeSurvice.load_FromrenderText(hightime.str().c_str(),textColor))
+//				{
+//				   printf( "Unable to render time texture!\n" );
+//				   quit=true;
+//				}
+//
+//				SDL_RenderClear( gRenderer );
+//
+//				gBackgroundTexture.render( 0, 0);
+//
+//				gTime.render(SCREEN_WIDTH-300,50);
+//				gHighTimeSurvice.render(SCREEN_WIDTH-700,50);
+//
+//				int X=10;
+//				for(int i=0;i<health.size();i++)
+//            {
+//               health[i].render(X);
+//               X+=50;
+//            }
+//
+//				//cap nhat trang thai tro choi
+//				charac.move();
+//				charac.render();
+//				chuongngai2.move(charac);
+//				chuongngai2.render();
+//
+//            for(auto& x:threads)
+//            {
+//                x.move(charac);
+//                x.render();
+//                if(checkCollision(charac.getmCollider(),x.getmCollider()))
+//                {
+//                   //Mix_PlayChannel(-1,Collider,0);
+//                   Mix_PlayChannel(-1,vacham,0);
+//                   cout<<"va cham"<<endl;
+//                   hEalth--;
+//                   health.pop_back();
+//                }
+//
+//            }
+//            if(checkCollision(charac.getmCollider(),chuongngai2.getmCollider()))
+//            {
+//               //Mix_PlayChannel(-1,Collider,0);
+//               Mix_PlayChannel(-1,vacham,0);
+//               cout<<"va cham"<<endl;
+//               hEalth--;
+//               health.pop_back();
+//            }
+//            if(hEalth<=0)
+//            {
+//               int timeOUT=(SDL_GetTicks()-startTime)/1000;
+//               Mix_PauseMusic();
+//               for(auto& x:threads)
+//               {
+//                  x.setVelY();
+//               }
+//               chuongngai2.setVelX();
+//               charac.setVelCharac();
+//               int playAgain=gameOver();
+//               if(playAgain==1)
+//               {
+//                  Mix_PlayMusic(play,-1);
+//                  cout<<"yes"<<endl;
+//                  hEalth=3;
+//                  if(HIGHTIME<=timeOUT)
+//                  {
+//                     HIGHTIME=timeOUT;
+//                  }
+//                  startTime=SDL_GetTicks();
+//
+//                  health.clear();
+//                  for(int i=0;i<hEalth;i++)
+//                  {
+//                     health.push_back(Health());
+//                  }
+//                  charac.resetPosition();
+//                  chuongngai2.resetPosition();
+//                  for(auto& x:threads)
+//                  {
+//                     x.resetPosition();
+//                  }
+//               }else if(playAgain==2)
+//               {
+//                  cout<<"no"<<endl;
+//                  quit=true;
+//               }
+//            }
+//
+//				SDL_RenderPresent( gRenderer );
+//
+//			}
+//			saveHighTime(HIGHTIME);
+//		}
+//	}
+//
+//
+//	close();
+//
+//	return 0;
+//}
+
+int main( int argc, char* args[] )
+{
+	if( !init() )
+	{
+		cout<<"Failed to initialize!"<<endl;
+	}
+	else
+	{
+		if( !loadMedia() )
+		{
+			cout<<"Failed to load media!"<<endl;
+		}
+		else
+		{
+			bool quit = true;
+			bool menu=true;
+
+			SDL_Event e;
+
+			Character charac;
+			ThreatsObject2 chuongngai2;
+			vector <Health> health;
+			for(int i=0;i<hEalth;i++)
+         {
+            health.push_back(Health());
+         }
+
+			vector <ThreatsObject> threads;
+         for(int i=0;i<4;i++)
+         {
+            threads.push_back(ThreatsObject());
+         }
+
+         SDL_Color textColor={225,225,0,255};
+         Uint32 startTime;
+         int HIGHTIME=loadHighTime();
+         stringstream timetext;
+         stringstream hightime;
+
+         while(menu)
+         {
+            int a=showMenu();
+            if(a==1)
+            {
+               startTime=SDL_GetTicks();
+               quit=false;
+               menu=false;
+            }else if(a==2)
+            {
+               quit=true;
+               menu=false;
+            }
+         }
+
+         Mix_PlayMusic(play,-1);
+//	      int FPS = 240;
+//	      Uint32 elapsed = 0;
+//	      int frameTime = 0;
+			while( !quit )
+			{
+				//elapsed = SDL_GetTicks();
+				while( SDL_PollEvent( &e ) != 0 )
+				{
+					if( e.type == SDL_QUIT )
+					{
+						quit = true;
+					}
+
+					charac.handleEvent( e );
+				}
+
+				timetext.str("");
+				timetext<<"Time survice : "<<(SDL_GetTicks()-startTime)/1000 <<" s";
+				if( !gTime.load_FromrenderText( timetext.str().c_str(), textColor ) )
+				{
+					printf( "Unable to render time texture!\n" );
+				}
+				if((SDL_GetTicks()-startTime)/1000==20)
+            {
+               for(auto& x:threads)
+               {
+                  x.VelY();
+               }
+            }
+				hightime.str("");
+				hightime<<"HighTimeSurvice : "<<HIGHTIME<<" s";
+				if(!gHighTimeSurvice.load_FromrenderText(hightime.str().c_str(),textColor))
+				{
+				   printf( "Unable to render time texture!\n" );
+				   quit=true;
+				}
+
+				SDL_RenderClear( gRenderer );
+
+				gBackgroundTexture.render( 0, 0);
+
+				gTime.render(SCREEN_WIDTH-300,50);
+				gHighTimeSurvice.render(SCREEN_WIDTH-700,50);
+
+				int X=10;
+				for(int i=0;i<health.size();i++)
+            {
+               health[i].render(X);
+               X+=50;
+            }
+
+				//cap nhat trang thai tro choi
+				charac.move();
+				charac.render();
+				chuongngai2.move(charac);
+				chuongngai2.render();
+
+            for(auto& x:threads)
+            {
+                x.move(charac);
+                x.render();
+                if(checkCollision(charac.getmCollider(),x.getmCollider()))
+                {
+                   //Mix_PlayChannel(-1,Collider,0);
+                   Mix_PlayChannel(-1,vacham,0);
+                   cout<<"va cham"<<endl;
+                   hEalth--;
+                   health.pop_back();
+                }
+
+            }
+            if(checkCollision(charac.getmCollider(),chuongngai2.getmCollider()))
+            {
+               //Mix_PlayChannel(-1,Collider,0);
+               Mix_PlayChannel(-1,vacham,0);
+               cout<<"va cham"<<endl;
+               hEalth--;
+               health.pop_back();
+            }
+            if(hEalth<=0)
+            {
+               int timeOUT=(SDL_GetTicks()-startTime)/1000;
+               Mix_PauseMusic();
+               for(auto& x:threads)
+               {
+                  x.setVelY();
+               }
+               chuongngai2.setVelX();
+               charac.setVelCharac();
+               int playAgain=gameOver();
+               if(playAgain==1)
+               {
+                  Mix_PlayMusic(play,-1);
+                  cout<<"yes"<<endl;
+                  hEalth=3;
+                  if(HIGHTIME<=timeOUT)
+                  {
+                     HIGHTIME=timeOUT;
+                  }
+                  startTime=SDL_GetTicks();
+//                  highTime=
+                  health.clear();
+                  for(int i=0;i<hEalth;i++)
+                  {
+                     health.push_back(Health());
+                  }
+                  charac.resetPosition();
+                  chuongngai2.resetPosition();
+                  for(auto& x:threads)
+                  {
+                     x.resetPosition();
+                  }
+               }else if(playAgain==2)
+               {
+                  cout<<"no"<<endl;
+                  quit=true;
+               }
+//		         frameTime = SDL_GetTicks() - elapsed;
+//		         if (1000 / FPS > frameTime){
+//                     SDL_Delay((1000/FPS)- frameTime);
+		         //}
+            }
+
+				SDL_RenderPresent( gRenderer );
+				//SDL_Delay(1);
+
+			}
+			saveHighTime(HIGHTIME);
+		}
+	}
+
+
+	close();
+
+	return 0;
+}
