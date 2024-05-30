@@ -15,7 +15,7 @@ const int SCREEN_HEIGHT = 793;
 int hEalth=3 ;
 
 
-
+//LoadTexture
 class LTexture
 {
 	public:
@@ -203,7 +203,7 @@ public:
    static const int CHARACTER_WIDTH=45;
    static const int CHARACTER_HEIGHT=45;
 
-   const double CHARACTER_VEL=0.75;
+   const double CHARACTER_VEL=0.6;
 
    Character();
 
@@ -365,7 +365,6 @@ public:
    static const int Threats_WITDH=100;
    static const int Threats_HEIGHT=100;
 
-   //static const int Threats_VEL=1;
    ThreatsObject();
 
    void move(Character& character);
@@ -428,9 +427,7 @@ void ThreatsObject::move( Character& character)
    {
       Mix_PlayChannel(-1,Collider,0);
       mPosY=-15-Threats_HEIGHT;
-      //mCollider.y=mPosY;
       mPosX=random(0,8)*100;
-      //mCollider.x=mPosX;
    }
 }
 
@@ -910,7 +907,7 @@ int main( int argc, char* args[] )
             threads.push_back(ThreatsObject());
          }
 
-         //MAU CUA TEXT
+         //MAU CUA TEXT mau vang
          SDL_Color textColor={225,225,0,255};
          //
          //Thoi gian
@@ -1045,6 +1042,7 @@ int main( int argc, char* args[] )
                   Mix_PlayMusic(play,-1);
                   cout<<"Choi lai"<<endl;
                   hEalth=3;
+                  TANGTOC=1;
                   if(HIGHTIME<=timeOUT)
                   {
                      HIGHTIME=timeOUT;
